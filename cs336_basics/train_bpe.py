@@ -1,5 +1,5 @@
 import heapq
-from datetime import time
+import time
 from typing import List, Tuple, Dict, DefaultDict, Any
 from collections import defaultdict
 import mmap
@@ -12,7 +12,9 @@ from tqdm import tqdm
 import json
 import psutil
 
+
 """
+合并过程:
 1. pair_positions   维护每个pair的position
 2. positions_by_seq 维护每个pair在每个序列中的位置
 3. 倒序处理
@@ -68,7 +70,7 @@ def pre_tokenizer_document(doc: str, bytes_to_unicode_map: Dict[int, str]) -> Li
     for token in tokens:
         token_unicode = "".join([bytes_to_unicode_map[b] for b in token.encode("utf-8")])
         sequences.append(list(token_unicode))
-
+    # 单个文档的所有token序列 eg [['h', 'e', 'l', 'l', 'o'], ['w', 'o', 'r', 'l', 'd']
     return sequences
 
 def parallel_pre_tokenizer(documents: List[str],
@@ -82,13 +84,17 @@ def parallel_pre_tokenizer(documents: List[str],
                               initializer=init_worker,
                               initargs=(bytes_to_unicode_map, )) as pool:
 
+        # result: List[List[List[str]]]
+        # 最内层: List[str]: 单个token的字符列表 eg ['h', 'e', 'l', 'l', 'o']
+        # 中间层: List[List[str]] 单个文档的所有token序列 eg [['h', 'e', 'l', 'l', 'o'], ['w', 'o', 'r', 'l', 'd']
+        # 最外层: List[List[List[str]]] 所有单个文档的list
         result = list(tqdm(
             pool.map(pre_tokenizer_worker, documents, chunksize=50),
             total=len(documents),
             desc="Pre-tokenizing documents",
             mininterval=1
         ))
-
+        # 所有文档的token序列集合
         return [seq for doc_sequences in result for seq in doc_sequences]
 
 
@@ -104,26 +110,29 @@ class BPEIndex:
     def __init__(self, sequences: List[List[str]]):
         self.sequences = sequences
         self.pair_counts: DefaultDict[Tuple[str, str], int] = defaultdict(int)
-        self.pair_positions: DefaultDict[Tuple[str, str], List[Tuple[int, int]]] = defaultdict(List)
+        self.pair_positions: DefaultDict[Tuple[str, str], List[Tuple[int, int]]] = defaultdict(list) # [第几个预分词token， 第几个预分词token中的位置]
         self.heap = []
         self.heap_entries: Dict[Tuple[str, str], Any] = {}
 
-        # init pair_counts, pair_positions
+        # init pair_counts, pair_positions 防止跨文档合并
         for seq_idx, seq in enumerate(self.sequences):
             for pos in range(len(seq) - 1):
                 self.pair_counts[(seq[pos], seq[pos + 1])] += 1
                 self.pair_positions[(seq[pos], seq[pos + 1])].append((seq_idx, pos))
 
-        # 空间换时间 方便修改堆中的(-count, pair)
         for pair, count in self.pair_counts.items():
             if count > 1:
                 entry = [-count, pair]
+                # 堆 方便获取最大频率的相邻字节
                 heapq.heappush(self.heap, entry)
+                # 空间换时间 方便修改堆中的(-count, pair)
                 self.heap_entries[pair] = entry
 
     def get_most_frequent_pairs(self) -> Tuple[str, str]:
+        # bpe 算法 会影响当前合并序列 左右两个序列的数量，所以要对堆顶进行多个判断
         while self.heap:
             neg_count, pair = self.heap[0]
+            # 最高频次 但是已经被合并过了
             if pair not in self.heap_entries:
                 heapq.heappop(self.heap)
                 continue
@@ -132,11 +141,12 @@ class BPEIndex:
 
             if -neg_count == current_count and current_count > 1:
                 return pair
-
+            # 处理 计数不匹配或者count=1 的情况
             heapq.heappop(self.heap)
 
             if pair in self.heap_entries:
                 del self.heap_entries[pair]
+
         return None
 
     def _update_pair_count(self, pair: Tuple[str, str], delta: int):
@@ -176,11 +186,11 @@ class BPEIndex:
 
         for seq_idx, position in positions_by_seq.items():
             seq = self.sequences[seq_idx]
-            position.sort(reverse=True)
+            # position.sort(reverse=True)
 
             last_merged_pos = -2
 
-            for pos in position:
+            for pos in reversed(position):
                 # 检查是否被前面的合并影响
                 if pos >= len(seq) - 1 or pos <= last_merged_pos:
                     continue
@@ -202,7 +212,7 @@ class BPEIndex:
                     self._add_position(new_left_pair, seq_idx, pos - 1)
 
                 if pos < len(seq) - 1:
-                    right_pair = (seq[pos + 1], pair[1])
+                    right_pair = (pair[1], seq[pos + 1])
                     self._update_pair_count(right_pair, delta=-1)
                     new_right_pair = (new_token, seq[pos + 1])
                     self._update_pair_count(new_right_pair, delta=1)
@@ -213,7 +223,7 @@ class BPEIndex:
         if pair in self.pair_positions:
             del self.pair_positions[pair]
         if pair in self.heap_entries:
-            self.heap_entries[pair] = None
+            del self.heap_entries[pair]
 
         return merge_count
 
@@ -249,11 +259,10 @@ def run_train_bpe(
 
     escaped_tokens = [re.escape(special_token) for special_token in special_tokens]
     split_pattern = "|".join(escaped_tokens)
-    documents = [part for part in re.split(split_pattern, text) if part]
+    documents = [part for part in re.split(split_pattern, text) if part] # List[str] 过滤掉空字符串
 
     sequences = parallel_pre_tokenizer(documents, num_processes=num_processes, bytes_to_unicode_map=bytes_to_unicode_map)
-    print(f"pre_tokenize over get {len(sequences)} sequences")
-
+    print(f"pre_tokenize over get {len(sequences)} tokens")
     print("build bpe index")
     bpe_index = BPEIndex(sequences=sequences)
     merges = []
@@ -323,8 +332,8 @@ if __name__ == "__main__":
         "sample_size": 22000,
     }
 
-    train_path = r"../../data/TinyStoriesV2-GPT4-train.txt"
-    valid_path = r"../../data/TinyStoriesV2-GPT4-valid.txt"
+    train_path = r"../data/TinyStoriesV2-GPT4-train.txt"
+    valid_path = r"../data/TinyStoriesV2-GPT4-valid.txt"
 
     if not os.path.exists(train_path):
         raise FileNotFoundError(train_path)
