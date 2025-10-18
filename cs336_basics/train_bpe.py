@@ -112,13 +112,14 @@ class BPEIndex:
         self.pair_counts: DefaultDict[Tuple[str, str], int] = defaultdict(int)
         self.pair_positions: DefaultDict[Tuple[str, str], List[Tuple[int, int]]] = defaultdict(list) # [第几个预分词token， 第几个预分词token中的位置]
         self.heap = []
-        self.heap_entries: Dict[Tuple[str, str], Any] = {}
+        self.heap_entries: Dict[Tuple[str, str], Any] = {} # 追踪堆中的条目 方便更新
 
         # init pair_counts, pair_positions 防止跨文档合并
         for seq_idx, seq in enumerate(self.sequences):
             for pos in range(len(seq) - 1):
-                self.pair_counts[(seq[pos], seq[pos + 1])] += 1
-                self.pair_positions[(seq[pos], seq[pos + 1])].append((seq_idx, pos))
+                pair = (seq[pos], seq[pos + 1])
+                self.pair_counts[pair] += 1
+                self.pair_positions[pair].append((seq_idx, pos))
 
         for pair, count in self.pair_counts.items():
             if count > 1:
@@ -186,11 +187,11 @@ class BPEIndex:
 
         for seq_idx, position in positions_by_seq.items():
             seq = self.sequences[seq_idx]
-            # position.sort(reverse=True)
+            position.sort(reverse=True)
 
             last_merged_pos = -2
 
-            for pos in reversed(position):
+            for pos in position:
                 # 检查是否被前面的合并影响
                 if pos >= len(seq) - 1 or pos <= last_merged_pos:
                     continue
@@ -223,7 +224,7 @@ class BPEIndex:
         if pair in self.pair_positions:
             del self.pair_positions[pair]
         if pair in self.heap_entries:
-            del self.heap_entries[pair]
+            self.heap_entries[pair] = None
 
         return merge_count
 
