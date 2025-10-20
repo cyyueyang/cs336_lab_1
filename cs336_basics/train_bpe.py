@@ -321,8 +321,8 @@ def save_vocab_and_merges(vocab: Dict[int, bytes], merges: List[Tuple[bytes, byt
         json.dump(vocab_str, f, ensure_ascii=False, indent=4)
     with open(merges_path, "w", encoding="utf-8") as f:
         for merge in merges:
-            part1 = merge[0].decode("utf-8")
-            part2 = merge[1].decode("utf-8")
+            part1 = merge[0].decode("utf-8", errors="replace")
+            part2 = merge[1].decode("utf-8", errors="replace")
             f.write(f"{part1} {part2}")
 
 if __name__ == "__main__":
