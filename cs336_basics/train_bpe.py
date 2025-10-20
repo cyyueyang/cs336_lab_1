@@ -328,7 +328,7 @@ def save_vocab_and_merges(vocab: Dict[int, bytes], merges: List[Tuple[bytes, byt
 if __name__ == "__main__":
     config = {
         "vocab_size": 10000,
-        "special_tokens": ["<|endoftest|>", "<pad>", "<unk>"],
+        "special_tokens": ["<|endoftext|>", "<pad>", "<unk>"],
         "num_processes": 8,
         "sample_size": 22000,
     }
