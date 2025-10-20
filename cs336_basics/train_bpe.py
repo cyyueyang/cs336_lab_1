@@ -316,7 +316,7 @@ def evaluate_tokenizer(vocab: Dict[int, bytes], merges: List[Tuple[bytes, bytes]
 
 def save_vocab_and_merges(vocab: Dict[int, bytes], merges: List[Tuple[bytes, bytes]], vocab_path: str, merges_path: str):
     print("saving vocab and merges ...")
-    vocab_str = {idx: token.encode("utf-8") for idx, token in vocab}
+    vocab_str = {idx: token.decode("utf-8", errors="replace") for idx, token in vocab.items()}
     with open(vocab_path, "w", encoding="utf-8") as f:
         json.dump(vocab_str, f, ensure_ascii=False, indent=4)
     with open(merges_path, "w", encoding="utf-8") as f:
