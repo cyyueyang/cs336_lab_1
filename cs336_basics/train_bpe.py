@@ -26,7 +26,7 @@ GPT2_PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\
 
 def load_and_sample_data(file_path: str,
                          sample_size: int,
-                         special_tokens: str = "<|endoftext|>"
+                         special_token: str = "<|endoftext|>"
                          ) -> str:
     try:
         with open(file_path, "r+", encoding="utf-8", errors="ignore") as f:
@@ -34,7 +34,7 @@ def load_and_sample_data(file_path: str,
                 documents = []
                 start = 0
                 while start < len(mm):
-                    end = mm.find(special_tokens.encode("utf-8"), start)
+                    end = mm.find(special_token.encode("utf-8"), start)
 
                     if end == -1:
                         doc = mm[start:].decode("utf-8", errors="replace").strip()
@@ -45,10 +45,10 @@ def load_and_sample_data(file_path: str,
                         doc = mm[start:end].decode("utf-8", errors="replace").strip()
                         if doc:
                             documents.append(doc)
-                        start = end + len(special_tokens.encode("utf-8"))
+                        start = end + len(special_token.encode("utf-8"))
                 if len(documents) > sample_size:
                     documents = random.sample(documents, sample_size)
-                return special_tokens.join(documents)
+                return special_token.join(documents)
     except Exception as e:
         raise IOError(f"Error opening {file_path}: {e}")
 
@@ -89,7 +89,7 @@ def parallel_pre_tokenizer(documents: List[str],
         # 中间层: List[List[str]] 单个文档的所有token序列 eg [['h', 'e', 'l', 'l', 'o'], ['w', 'o', 'r', 'l', 'd']
         # 最外层: List[List[List[str]]] 所有单个文档的list
         result = list(tqdm(
-            pool.map(pre_tokenizer_worker, documents, chunksize=50),
+            pool.imap(pre_tokenizer_worker, documents, chunksize=50),
             total=len(documents),
             desc="Pre-tokenizing documents",
             mininterval=1
@@ -97,7 +97,7 @@ def parallel_pre_tokenizer(documents: List[str],
         # 所有文档的token序列集合
         return [seq for doc_sequences in result for seq in doc_sequences]
 
-
+global_worker_byte_map = None
 def init_worker(byte_map: Dict[int, str]):
     global global_worker_byte_map
     global_worker_byte_map = byte_map
@@ -231,7 +231,7 @@ class BPEIndex:
 def run_train_bpe(
         input_path: str,
         vocab_size: int,
-        special_tokens: List[str] = ["<|endoftest|>"],
+        special_tokens: List[str] = ["<|endoftext|>"],
         num_processes: int = 8,
         sample_size: int = 22000,
         **kwargs,
@@ -256,7 +256,7 @@ def run_train_bpe(
             existing_bytes.add(special_token)
 
     print(f"from {input_path} sample {sample_size} documents:")
-    text = load_and_sample_data(input_path, sample_size, special_tokens=special_tokens[0])
+    text = load_and_sample_data(input_path, sample_size, special_token=special_tokens[0])
 
     escaped_tokens = [re.escape(special_token) for special_token in special_tokens]
     split_pattern = "|".join(escaped_tokens)
