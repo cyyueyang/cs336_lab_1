@@ -61,3 +61,6 @@ class GLUModule(nn.Module):
 class SwiGLUModule(nn.Module):
     def __init__(self, dim):
         super(SwiGLUModule, self).__init__()
+        pass
+    def forward(self, x):
+        pass
