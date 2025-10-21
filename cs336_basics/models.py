@@ -43,3 +43,21 @@ class RmsNormModule(nn.Module):
     def forward(self, x):
         return (self.alpha * x / torch.sqrt(torch.mean(x**2, dim=-1, keepdim=True) + self.eps)).to(x.dtype)
 
+class SwishModule(nn.Module):
+    def __init__(self):
+        super(SwishModule, self).__init__()
+        pass
+    def forward(self, x):
+        return x * torch.sigmoid(x)
+
+class GLUModule(nn.Module):
+    def __init__(self, dim):
+        super(GLUModule, self).__init__()
+        self.w1 = LinearModule(dim, dim, device=torch.device("cpu"))
+        self.w2 = LinearModule(dim, dim, device=torch.device("cpu"))
+    def forward(self, x):
+        return torch.sigmoid(self.w1(x)) * self.w2(x)
+
+class SwiGLUModule(nn.Module):
+    def __init__(self, dim):
+        super(SwiGLUModule, self).__init__()
