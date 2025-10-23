@@ -19,6 +19,7 @@ dependencies = [
     "tqdm>=4.67.1",
     "wandb>=0.19.7",
     "ty>=0.0.1a16",
+    "notebook>=7.4.7",
 ]
 
 [build-system]
