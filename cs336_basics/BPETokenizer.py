@@ -1,5 +1,6 @@
 from typing import Iterator, Iterable
 import regex as re
+import pickle
 
 class BPETokenizer(object):
 
@@ -19,7 +20,11 @@ class BPETokenizer(object):
 
     @classmethod
     def from_files(cls, vocab_filepath, merges_filepath, special_tokens=None):
-        pass
+        vocab = pickle.load(open(vocab_filepath, "rb"))
+        merges = pickle.load(open(merges_filepath, "rb"))
+        special_tokens = special_tokens if special_tokens is not None else []
+        tokenizer = cls(vocab, merges, special_tokens)
+        return tokenizer
 
     def encode(self, text: str) -> list[int]:
         tokens = []
@@ -27,7 +32,7 @@ class BPETokenizer(object):
         sorted_special_tokens = sorted(self.special_tokens, key=len, reverse=True)
         pattern = "|".join(map(re.escape, sorted_special_tokens))
         if pattern:
-            parts = re.split(pattern, text)
+            parts = re.split(f"({pattern})", text)
         else:
             parts = [text]
 
