@@ -4,7 +4,7 @@ import mmap
 from typing import List, Tuple, Dict, DefaultDict, Any
 from collections import defaultdict
 from multiprocessing import Pool, Manager
-
+import json
 
 def process_chunk(chunk):
     local_pre_tokens_cnt = defaultdict(int)
@@ -122,6 +122,46 @@ def train_bpe(input_path: str,
 
     return vocab, merges
 
+if __name__ == '__main__':
+
+    def save_vocab_and_merges(vocab: Dict[int, bytes], merges: List[Tuple[bytes, bytes]], vocab_path: str,
+                              merges_path: str):
+        vocab_str = {idx: token.decode('utf-8', errors='replace') for idx, token in vocab.items()}
+        with open(vocab_path, 'w', encoding='utf-8') as f:
+            json.dump(vocab_str, f, ensure_ascii=False, indent=2)
+
+        with open(merges_path, 'w', encoding='utf-8') as f:
+            for merge in merges:
+                part1 = merge[0].decode('utf-8', errors='replace')
+                part2 = merge[1].decode('utf-8', errors='replace')
+                f.write(f"{part1} {part2}\n")
+
+    owt_train_data = r"../data/owt_train.txt"
+    owt_val_data = r"../data/owt_valid.txt"
+    TinyStories_train_data = r"../data/TinyStoriesV2-GPT4-train.txt"
+    TinyStories_val_data = r"../data/TinyStoriesV2-GPT4-valid.txt"
+
+    print("start training...")
+
+    owt_train_vocab, owt_train_merges = train_bpe(input_path=owt_train_data, vocab_size=32000, special_tokens=["<|endoftext|>", "<pad>", "<unk>"])
+    save_vocab_and_merges(vocab=owt_train_vocab, merges=owt_train_merges, vocab_path="../output/owt_train_vocab.json", merges_path="../output/owt_train_vocab.txt")
+    print("owt_train_vocab merges finished")
+    print("owt_train_vocab length:", len(owt_train_vocab))
+
+    owt_val_vocab, owt_val_merges = train_bpe(input_path=owt_val_data, vocab_size=32000, special_tokens=["<|endoftext|>", "<pad>", "<unk>"])
+    save_vocab_and_merges(vocab=owt_val_vocab, merges=owt_val_merges, vocab_path="../output/owt_val_vocab.json",merges_path="../output/owt_val_vocab.txt")
+    print("owt_val_vocab merges finished")
+    print("owt_train_vocab length:", len(owt_val_vocab))
+
+    TinyStories_train_vocab, TinyStories_train_merges = train_bpe(input_path=TinyStories_train_data, vocab_size=10000, special_tokens=["<|endoftext|>", "<pad>", "<unk>"])
+    save_vocab_and_merges(vocab=TinyStories_train_vocab, merges=TinyStories_train_merges, vocab_path="../output/TinyStories_train_vocab.json",merges_path="../output/TinyStories_train_vocab.txt")
+    print("TinyStories_train_vocab merges finished")
+    print("owt_train_vocab length:", len(TinyStories_train_vocab))
+
+    TinyStories_val_vocab, TinyStories_val_merges = train_bpe(input_path=TinyStories_val_data, vocab_size=10000, special_tokens=["<|endoftext|>", "<pad>", "<unk>"])
+    save_vocab_and_merges(vocab=TinyStories_val_vocab, merges=TinyStories_val_merges, vocab_path="../output/TinyStories_val_vocab.json", merges_path="../output/TinyStories_val_vocab.txt")
+    print("TinyStories_val_vocab merges finished")
+    print("owt_val_vocab length:", len(TinyStories_val_vocab))
 
 
 

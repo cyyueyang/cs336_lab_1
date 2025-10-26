@@ -43,12 +43,8 @@ class RmsNormModule(nn.Module):
     def forward(self, x):
         return (self.alpha * x / torch.sqrt(torch.mean(x**2, dim=-1, keepdim=True) + self.eps)).to(x.dtype)
 
-class SwishModule(nn.Module):
-    def __init__(self):
-        super(SwishModule, self).__init__()
-        pass
-    def forward(self, x):
-        return x * torch.sigmoid(x)
+def Swish(x):
+    return x * torch.sigmoid(x)
 
 class GLUModule(nn.Module):
     def __init__(self, dim):
@@ -59,8 +55,11 @@ class GLUModule(nn.Module):
         return torch.sigmoid(self.w1(x)) * self.w2(x)
 
 class SwiGLUModule(nn.Module):
-    def __init__(self, dim):
+    def __init__(self, dim, device=None):
         super(SwiGLUModule, self).__init__()
-        pass
+        self.device  = device if device is not None else torch.device("cpu")
+        self.w1 = LinearModule(dim, dim, device=self.device)
+        self.w2 = LinearModule(dim, dim, device=self.device)
+
     def forward(self, x):
-        pass
+        return Swish
