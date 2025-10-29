@@ -43,23 +43,29 @@ class RmsNormModule(nn.Module):
     def forward(self, x):
         return (self.alpha * x / torch.sqrt(torch.mean(x**2, dim=-1, keepdim=True) + self.eps)).to(x.dtype)
 
-def Swish(x):
+def silu(x):
     return x * torch.sigmoid(x)
 
-class GLUModule(nn.Module):
-    def __init__(self, dim):
-        super(GLUModule, self).__init__()
-        self.w1 = LinearModule(dim, dim, device=torch.device("cpu"))
-        self.w2 = LinearModule(dim, dim, device=torch.device("cpu"))
-    def forward(self, x):
-        return torch.sigmoid(self.w1(x)) * self.w2(x)
-
 class SwiGLUModule(nn.Module):
-    def __init__(self, dim, device=None):
+    def __init__(self, d_model, d_ff, device=None, dtype=None):
         super(SwiGLUModule, self).__init__()
-        self.device  = device if device is not None else torch.device("cpu")
-        self.w1 = LinearModule(dim, dim, device=self.device)
-        self.w2 = LinearModule(dim, dim, device=self.device)
+        self.device = device if device is not None else torch.device("cpu")
+        self.dtype = dtype if dtype is not None else torch.float32
+        self.d_model = d_model
+        self.d_ff = d_ff
+
+        self.linear1 = LinearModule(d_model, d_ff, device=self.device, dtype=self.dtype)
+        self.linear2 = LinearModule(d_ff, d_model, device=self.device, dtype=self.dtype)
+        self.linear3 = LinearModule(d_model, d_ff, device=self.device, dtype=self.dtype)
 
     def forward(self, x):
-        return Swish
+        return self.linear2(silu(self.linear1(x)) * self.linear3(x))
+
+class RotaryPositionalEmbedding(nn.Module):
+    def __init__(self, theta: float, d_k: int, max_seq_len: int, device=None):
+        super(RotaryPositionalEmbedding, self).__init__()
+
+
+    def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
+        pass
+
