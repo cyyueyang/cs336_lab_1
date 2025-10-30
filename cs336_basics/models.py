@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 from einops import rearrange, einsum
+from typing import List, Tuple, Optional
+import math
 
 class LinearModule(nn.Module):
     def __init__(self, in_features, out_features, device=None, dtype=None):
@@ -88,4 +90,52 @@ class RotaryPositionalEmbedding(nn.Module):
         x_odd = x[..., 1::2]
         x_shifted = torch.stack([-x_odd, x_even], dim=-1)
         return x_shifted.flatten(-2)
+
+def softmax(x: torch.Tensor, dim: int) -> torch.Tensor:
+    x_max = x.max(dim=dim, keepdim=True)[0]
+    x_exp = torch.exp(x - x_max)
+    return x_exp / x_exp.sum(dim=dim, keepdim=True)
+
+class ScaledDotProductAttentionModule(nn.Module):
+    def __init__(self, device=None, dtype=None):
+        super(ScaledDotProductAttentionModule, self).__init__()
+        self.device = device if device is not None else torch.device("cpu")
+        self.dtype = dtype if dtype is not None else torch.float32
+
+    def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
+        d_k = query.shape[-1]
+        scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)
+        if mask is not None:
+            scores = scores.masked_fill(~mask, -1e9)
+        attn_weights = torch.softmax(scores, dim=-1)
+        return torch.matmul(attn_weights, value)
+
+class CausalMultiHeadSelfAttention(nn.Module):
+    def __init__(self, d_model, num_heads, device=None, dtype=None):
+        super(CausalMultiHeadSelfAttention, self).__init__()
+        assert d_model % num_heads == 0
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.d_k = d_model // num_heads
+        self.device = device if device is not None else torch.device("cpu")
+        self.dtype = dtype if dtype is not None else torch.float32
+
+        self.w_q = LinearModule(d_model, d_model, device=self.device, dtype=self.dtype)
+        self.w_k = LinearModule(d_model, d_model, device=self.device, dtype=self.dtype)
+        self.w_v = LinearModule(d_model, d_model, device=self.device, dtype=self.dtype)
+
+        self.w_o = LinearModule(d_model, d_model, device=self.device, dtype=self.dtype)
+        max_seq_len = 2048
+        self.pos_encoder = RotaryPositionalEmbedding(theta=10000, d_k=int(self.d_k), max_seq_len=max_seq_len, device=self.device)
+        mask = torch.triu(torch.ones(max_seq_len, max_seq_len, dtype=torch.bool), diagonal=1)
+        self.register_buffer("mask", mask, persistent=False)
+
+    def forward(self, x: torch.Tensor, token_positions: torch.Tensor = None) -> torch.Tensor :
+        batch_size, seq_len, d_model = x.shape
+        assert d_model == self.d_model
+        Q = self.w_q(x).view(batch_size, seq_len, self.num_heads, self.d_k).transpose(1, 2)
+        K = self.w_k(x).view(batch_size, seq_len, self.num_heads, self.d_k).transpose(1, 2)
+        V = self.w_v(x).view(batch_size, seq_len, self.num_heads, self.d_k).transpose(1, 2)
+        if token_positions is None:
+            token_positions = torch.arange(seq_len, dtype=torch.int32, device=self.device)
 
