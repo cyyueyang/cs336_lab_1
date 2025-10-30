@@ -64,8 +64,28 @@ class SwiGLUModule(nn.Module):
 class RotaryPositionalEmbedding(nn.Module):
     def __init__(self, theta: float, d_k: int, max_seq_len: int, device=None):
         super(RotaryPositionalEmbedding, self).__init__()
+        self.theta = theta
+        self.d_k = d_k
+        self.max_seq_len = max_seq_len
+        self.device = device if device is not None else torch.device("cpu")
+        self.t = torch.arange(max_seq_len, dtype=torch.float32).to(self.device)
+        self.freqs = 1.0 / (self.theta ** (torch.arange(0, self.d_k, 2)[0: self.d_k // 2] / self.d_k))
+        self.freqs = torch.outer(self.t, self.freqs)
 
+        self.register_buffer("cos_cache", self.freqs.cos(), persistent=False)
+        self.register_buffer("sin_cache", self.freqs.sin(), persistent=False)
 
     def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
-        pass
+        cos_emb = self.cos_cache[token_positions]
+        sin_emb = self.sin_cache[token_positions]
+        cos_emb = cos_emb.repeat_interleave(repeats=2, dim=-1)
+        sin_emb = sin_emb.repeat_interleave(repeats=2, dim=-1)
+        x_shift = self._shift(x)
+        return cos_emb * x + sin_emb * x_shift
+
+    def _shift(self, x: torch.Tensor) -> torch.Tensor:
+        x_even = x[..., ::2]
+        x_odd = x[..., 1::2]
+        x_shifted = torch.stack([-x_odd, x_even], dim=-1)
+        return x_shifted.flatten(-2)
 
