@@ -137,5 +137,7 @@ class CausalMultiHeadSelfAttention(nn.Module):
         K = self.w_k(x).view(batch_size, seq_len, self.num_heads, self.d_k).transpose(1, 2)
         V = self.w_v(x).view(batch_size, seq_len, self.num_heads, self.d_k).transpose(1, 2)
         if token_positions is None:
-            token_positions = torch.arange(seq_len, dtype=torch.int32, device=self.device)
+            token_positions = rearrange(torch.arange(seq_len, dtype=torch.int32, device=self.device), "seq_len -> b... seq_len")
+
+        token_positions = rearrange(token_positions, "... seq_len -> ... 1 seq_len")
 
