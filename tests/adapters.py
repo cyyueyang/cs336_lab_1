@@ -16,6 +16,8 @@ import time
 from typing import Iterator, Iterable
 import regex as re
 import pickle
+import math
+from einops import rearrange, repeat
 
 def run_linear(
     d_in: int,
@@ -60,6 +62,8 @@ def run_embedding(
 
     return weights[token_ids]
 
+def silu(x):
+    return x * torch.sigmoid(x)
 
 def run_swiglu(
     d_model: int,
@@ -90,7 +94,7 @@ def run_swiglu(
     # swiglu.w1.weight.data = w1_weight
     # swiglu.w2.weight.data = w2_weight
     # swiglu.w3.weight.data = w3_weight
-    return
+    return (silu(in_features @ w1_weight.t()) * (in_features @ w3_weight.t())) @ w2_weight.t()
 
 
 def run_scaled_dot_product_attention(
@@ -111,7 +115,12 @@ def run_scaled_dot_product_attention(
     Returns:
         Float[Tensor, " ... queries d_v"]: Output of SDPA
     """
-    raise NotImplementedError
+    d_k = Q.shape[-1]
+    scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(d_k)
+    if mask is not None:
+        scores = scores.masked_fill(mask == 0, float("-inf"))
+    attn_weights = torch.softmax(scores, dim=-1)
+    return torch.matmul(attn_weights, V)
 
 
 def run_multihead_self_attention(
@@ -145,8 +154,29 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    d_k, d_in = q_proj_weight.shape
+    d_v = v_proj_weight.shape[0]
 
+    q = run_linear(d_in, d_k, q_proj_weight, in_features)
+    k = run_linear(d_in, d_k, k_proj_weight, in_features)
+    v = run_linear(d_in, d_v, v_proj_weight, in_features)
+
+    q = q.view(*in_features.shape[:-1], num_heads, -1)
+    k = k.view(*in_features.shape[:-1], num_heads, -1)
+    v = v.view(*in_features.shape[:-1], num_heads, -1)
+
+    q = q.permute(0, 2, 1, 3)
+    k = k.permute(0, 2, 1, 3)
+    v = v.permute(0, 2, 1, 3)
+
+    seq_len = q.shape[2]
+    mask = torch.tril(torch.ones(seq_len, seq_len)).bool()
+    # mask = mask.repeat(*q.shape[:2], seq_len, seq_len)
+    attn_output = run_scaled_dot_product_attention(q, k, v, mask)
+    attn_output = attn_output.permute(0, 2, 1, 3)
+    attn_output = attn_output.contiguous().view(*attn_output.shape[: -2], d_v)
+    out = run_linear(d_v, d_model, o_proj_weight, attn_output)
+    return out
 
 def run_multihead_self_attention_with_rope(
     d_model: int,

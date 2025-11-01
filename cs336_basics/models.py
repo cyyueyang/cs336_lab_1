@@ -106,7 +106,7 @@ class ScaledDotProductAttentionModule(nn.Module):
         d_k = query.shape[-1]
         scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)
         if mask is not None:
-            scores = scores.masked_fill(~mask, -1e9)
+            scores = scores.masked_fill(mask == 0, float("-inf"))
         attn_weights = torch.softmax(scores, dim=-1)
         return torch.matmul(attn_weights, value)
 
@@ -125,6 +125,7 @@ class CausalMultiHeadSelfAttention(nn.Module):
         self.w_v = LinearModule(d_model, d_model, device=self.device, dtype=self.dtype)
 
         self.w_o = LinearModule(d_model, d_model, device=self.device, dtype=self.dtype)
+        self.scale_dot_product = ScaledDotProductAttentionModule(device=self.device, dtype=self.dtype)
         max_seq_len = 2048
         self.pos_encoder = RotaryPositionalEmbedding(theta=10000, d_k=int(self.d_k), max_seq_len=max_seq_len, device=self.device)
         mask = torch.triu(torch.ones(max_seq_len, max_seq_len, dtype=torch.bool), diagonal=1)
@@ -132,12 +133,20 @@ class CausalMultiHeadSelfAttention(nn.Module):
 
     def forward(self, x: torch.Tensor, token_positions: torch.Tensor = None) -> torch.Tensor :
         batch_size, seq_len, d_model = x.shape
+
         assert d_model == self.d_model
         Q = self.w_q(x).view(batch_size, seq_len, self.num_heads, self.d_k).transpose(1, 2)
         K = self.w_k(x).view(batch_size, seq_len, self.num_heads, self.d_k).transpose(1, 2)
         V = self.w_v(x).view(batch_size, seq_len, self.num_heads, self.d_k).transpose(1, 2)
         if token_positions is None:
-            token_positions = rearrange(torch.arange(seq_len, dtype=torch.int32, device=self.device), "seq_len -> b... seq_len")
+            token_positions = rearrange(torch.arange(seq_len, dtype=torch.float32, device=self.device), "seq_len -> b seq_len", b=batch_size)
 
         token_positions = rearrange(token_positions, "... seq_len -> ... 1 seq_len")
+        Q_pos = self.pos_encoder(Q, token_positions)
+        K_pos = self.pos_encoder(K, token_positions)
+        attn_output = self.scale_dot_product(Q_pos, K_pos, V, mask=self.mask)
+        attn_output = rearrange(attn_output, "b heads, seq_len, d_k -> b seq_len (heads d_k)").contiguous()
+        output = self.w_o(attn_output)
+        return output
+
 
