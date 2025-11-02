@@ -149,4 +149,20 @@ class CausalMultiHeadSelfAttention(nn.Module):
         output = self.w_o(attn_output)
         return output
 
+class TranformerBlock(nn.Module):
+    def __init__(self, d_model, d_ff, num_heads, device=None, dtype=None):
+        super(TranformerBlock, self).__init__()
+        self.device = device if device is not None else torch.device("cpu")
+        self.dtype = dtype if dtype is not None else torch.float32
+        self.d_model = d_model
+        self.d_ff = d_ff
+        self.num_heads = num_heads
+        max_seq_len = 2048
+        assert d_model % num_heads == 0
+        self.d_k = d_model // num_heads
+        self.pos_encoder = RotaryPositionalEmbedding(theta=10000, d_k=int(self.d_k), max_seq_len=max_seq_len, device=self.device)
+
+    def forward(self, x):
+
+
 

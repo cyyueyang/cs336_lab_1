@@ -215,7 +215,32 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    d_k, d_in = q_proj_weight.shape
+    d_v = v_proj_weight.shape[0]
+
+    q = run_linear(d_in, d_k, q_proj_weight, in_features)
+    k = run_linear(d_in, d_k, k_proj_weight, in_features)
+    v = run_linear(d_in, d_v, v_proj_weight, in_features)
+
+    q = q.view(*in_features.shape[:-1], num_heads, -1)
+    k = k.view(*in_features.shape[:-1], num_heads, -1)
+    v = v.view(*in_features.shape[:-1], num_heads, -1)
+
+    q = q.permute(0, 2, 1, 3)
+    k = k.permute(0, 2, 1, 3)
+    v = v.permute(0, 2, 1, 3)
+    seq_len = q.shape[2]
+    if token_positions is not None:
+        q = run_rope(d_k // num_heads, theta, max_seq_len, q, token_positions)
+        k = run_rope(d_k // num_heads, theta, max_seq_len, k, token_positions)
+
+    mask = torch.tril(torch.ones(seq_len, seq_len)).bool()
+    # mask = mask.repeat(*q.shape[:2], seq_len, seq_len)
+    attn_output = run_scaled_dot_product_attention(q, k, v, mask)
+    attn_output = attn_output.permute(0, 2, 1, 3)
+    attn_output = attn_output.contiguous().view(*attn_output.shape[: -2], d_v)
+    out = run_linear(d_v, d_model, o_proj_weight, attn_output)
+    return out
 
 
 def run_rope(
@@ -237,8 +262,22 @@ def run_rope(
     Returns:
         Float[Tensor, " ... sequence_length d_k"]: Tensor with RoPEd input.
     """
-    raise NotImplementedError
+    time = torch.arange(max_seq_len, dtype=torch.float32)
+    freqs = 1.0 / (theta ** (torch.arange(0, d_k, 2)[0: d_k // 2] / d_k))
+    freqs = torch.outer(time, freqs)
+    cos_freqs = freqs.cos()
+    sin_freqs = freqs.sin()
 
+    def _shift(x):
+        x_even = x[..., ::2]
+        x_odd = x[..., 1::2]
+        return torch.stack([-x_odd, x_even], dim=-1).flatten(-2)
+    x_shifted = _shift(in_query_or_key)
+    cos_emb = cos_freqs[token_positions]
+    sin_emb = sin_freqs[token_positions]
+    cos_emb = cos_emb.repeat_interleave(repeats=2, dim=-1)
+    sin_emb = sin_emb.repeat_interleave(repeats=2, dim=-1)
+    return in_query_or_key * cos_emb + x_shifted * sin_emb
 
 def run_transformer_block(
     d_model: int,
@@ -415,7 +454,8 @@ def run_rmsnorm(
         Float[Tensor,"... d_model"]: Tensor of with the same shape as `in_features` with the output of running
         RMSNorm of the `in_features`.
     """
-    raise NotImplementedError
+    angry = torch.sqrt(torch.pow(in_features, 2).mean(dim=-1, keepdim=True)) + eps
+    return weights * in_features / angry
 
 
 def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
@@ -429,8 +469,7 @@ def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
         Float[Tensor,"..."]: of with the same shape as `in_features` with the output of applying
         SiLU to each element.
     """
-    raise in_features * torch.sigmoid(in_features)
-
+    return in_features * torch.sigmoid(in_features)
 
 def run_get_batch(
     dataset: npt.NDArray, batch_size: int, context_length: int, device: str
