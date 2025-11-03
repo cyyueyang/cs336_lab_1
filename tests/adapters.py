@@ -353,7 +353,7 @@ def run_transformer_block(
     token_positions = torch.arange(seq_len).expand(batch_size, -1)
 
     ln1_weight = weights["ln1.weight"]
-    normed_input = run_rmsnorm(d_model, 2e-5, ln1_weight, in_features=in_features)
+    normed_input = run_rmsnorm(d_model, 5e-6, ln1_weight, in_features=in_features)
     q_proj_weight = weights["attn.q_proj.weight"]
     k_proj_weight = weights["attn.k_proj.weight"]
     v_proj_weight = weights["attn.v_proj.weight"]
@@ -374,7 +374,7 @@ def run_transformer_block(
     residual = in_features + attn_output
 
     ln2_weight = weights["ln2.weight"]
-    normed_input = run_rmsnorm(d_model, 2e-5, ln2_weight, residual)
+    normed_input = run_rmsnorm(d_model, 5e-6, ln2_weight, residual)
     ffn_output = run_swiglu(
         d_model,
         d_ff,
@@ -466,7 +466,40 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    pass
+    batch_size, seq_len = in_indices.shape
+
+    token_embeddings = run_embedding(
+        vocab_size=vocab_size,
+        d_model=d_model,
+        weights=weights["token_embeddings.weight"],
+        token_ids=in_indices
+    )
+    hidden_state = token_embeddings
+
+    for i in range(num_layers):
+        layer_weights = {}
+        for k, v in weights.items():
+            if k.startswith(f'layers.{i}.'):
+                layer_weights[k] = v
+        layer_weights.update({
+            k[len(f'layers.{i}.'):]: v for k, v in layer_weights.items()
+        })
+
+        hidden_state = run_transformer_block(
+            d_model,
+            num_heads,
+            d_ff,
+            context_length,
+            rope_theta,
+            layer_weights,
+            hidden_state,
+        )
+
+    ln_final_weight = weights['ln_final.weight']
+    hidden_state = run_rmsnorm(d_model, 5e-6, ln_final_weight, hidden_state)
+
+    lm_logits = run_linear(vocab_size, d_model, weights['lm_head.weight'], hidden_state)
+    return lm_logits
 
 
 def run_rmsnorm(
