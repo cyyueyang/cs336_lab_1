@@ -349,8 +349,43 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+    batch_size, seq_len, _ = in_features.size()
+    token_positions = torch.arange(seq_len).expand(batch_size, -1)
 
+    ln1_weight = weights["ln1.weight"]
+    normed_input = run_rmsnorm(d_model, 2e-5, ln1_weight, in_features=in_features)
+    q_proj_weight = weights["attn.q_proj.weight"]
+    k_proj_weight = weights["attn.k_proj.weight"]
+    v_proj_weight = weights["attn.v_proj.weight"]
+    o_proj_weight = weights["attn.output_proj.weight"]
+    attn_output = run_multihead_self_attention_with_rope(
+        d_model,
+        num_heads,
+        max_seq_len,
+        theta,
+        q_proj_weight,
+        k_proj_weight,
+        v_proj_weight,
+        o_proj_weight,
+        normed_input,
+        token_positions
+    )
+
+    residual = in_features + attn_output
+
+    ln2_weight = weights["ln2.weight"]
+    normed_input = run_rmsnorm(d_model, 2e-5, ln2_weight, residual)
+    ffn_output = run_swiglu(
+        d_model,
+        d_ff,
+        weights["ffn.w1.weight"],
+        weights["ffn.w2.weight"],
+        weights["ffn.w3.weight"],
+        normed_input,
+    )
+    output = residual + ffn_output
+
+    return output
 
 def run_transformer_lm(
     vocab_size: int,
@@ -431,7 +466,7 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    pass
 
 
 def run_rmsnorm(
