@@ -130,7 +130,7 @@ class CausalMultiHeadSelfAttention(nn.Module):
         self.scale_dot_product = ScaledDotProductAttentionModule(device=self.device, dtype=self.dtype)
         max_seq_len = 2048
         self.pos_encoder = RotaryPositionalEmbedding(theta=10000, d_k=int(self.d_k), max_seq_len=max_seq_len, device=self.device)
-        mask = torch.triu(torch.ones(max_seq_len, max_seq_len, dtype=torch.bool), diagonal=1)
+        mask = torch.tril(torch.ones(max_seq_len, max_seq_len, dtype=torch.bool))
         self.register_buffer("mask", mask, persistent=False)
 
     def forward(self, x: torch.Tensor, token_positions: torch.Tensor = None) -> torch.Tensor :
@@ -146,8 +146,10 @@ class CausalMultiHeadSelfAttention(nn.Module):
         token_positions = rearrange(token_positions, "... seq_len -> ... 1 seq_len")
         Q_pos = self.pos_encoder(Q, token_positions)
         K_pos = self.pos_encoder(K, token_positions)
-        attn_output = self.scale_dot_product(Q_pos, K_pos, V, mask=self.mask)
-        attn_output = rearrange(attn_output, "b heads, seq_len, d_k -> b seq_len (heads d_k)").contiguous()
+        mask = self.mask[:seq_len, :seq_len]
+        mask = mask.unsqueeze(0).unsqueeze(0)
+        attn_output = self.scale_dot_product(Q_pos, K_pos, V, mask=mask)
+        attn_output = rearrange(attn_output, "b heads seq_len d_k -> b seq_len (heads d_k)").contiguous()
         output = self.w_o(attn_output)
         return output
 
