@@ -23,7 +23,6 @@ def cross_entropy_loss(inputs, labels):
 class SGDOptimizer(torch.optim.Optimizer):
     def __init__(self, params, lr=1e-3):
         assert lr > 0
-        self.params = params
         self.defaults = dict(lr=lr)
         super(SGDOptimizer, self).__init__(params, defaults=self.defaults)
 
@@ -91,6 +90,43 @@ class AdamWOptimizer(torch.optim.Optimizer):
                 p.data.addcdiv_(exp_avg, denom_sqrt_exp_avg_sq, value=-step_size)
                 p.data.mul_(1 - lr * weight_decay)
         return loss
+
+def cosine_learning_rate_schedule_with_warmup(
+        it: int,
+        max_learning_rate: float,
+        min_learning_rate: float,
+        warmup_iters: int,
+        cosine_cycle_iters: int,
+    ):
+
+    warmup_learning_rate: float = 1e-3
+    if it < warmup_iters:
+        warmup_learning_rate = max_learning_rate * it / warmup_iters
+    elif warmup_iters <= it <= cosine_cycle_iters:
+        warmup_learning_rate = min_learning_rate + 0.5 * (1 + math.cos(math.pi * (it - warmup_iters)
+                                                                       / (cosine_cycle_iters - warmup_iters))) * (
+                                           max_learning_rate - min_learning_rate)
+    elif it > cosine_cycle_iters:
+        warmup_learning_rate = min_learning_rate
+
+    return warmup_learning_rate
+
+def gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float):
+    parameters_with_grad = [p for p in parameters if p.grad is not None]
+
+    if len(parameters_with_grad) == 0:
+        return
+
+    norm = torch.sqrt(sum(torch.sum(p.grad.pow(2)) for p in parameters_with_grad))
+    coef = max_l2_norm / (norm + 1e-6)
+    if norm >= max_l2_norm:
+        for p in parameters_with_grad:
+            p.grad.mul_(coef)
+
+
+
+
+
 
 
 
