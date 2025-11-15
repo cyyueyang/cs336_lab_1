@@ -1,10 +1,12 @@
+import os
+import typing
+
 import torch
 import math
 from typing import Optional
 from collections import Callable, Iterable
-
-from mpmath import beta
-
+import numpy as np
+import numpy.typing as npt
 
 def cross_entropy_loss(inputs, labels):
     """
@@ -35,8 +37,8 @@ class SGDOptimizer(torch.optim.Optimizer):
                     continue
                 state = self.state[p]
                 t = state.get("t", 0)
-                gard = p.grad.data
-                p.data = p.data - lr / math.sqrt(t + 1)  * gard
+                grad = p.grad.data
+                p.data = p.data - lr / math.sqrt(t + 1)  * grad
                 state["t"] = t + 1
 
         return loss
@@ -123,7 +125,50 @@ def gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: flo
         for p in parameters_with_grad:
             p.grad.mul_(coef)
 
+def get_batch(dataset: npt.NDArray, batch_size: int, context_length: int, device: str):
+    starts = np.random.randint(
+        low=0,
+        high=len(dataset) - context_length,
+        size=(batch_size,),
+    )
+    inputs = np.stack([dataset[start: start+context_length] for start in starts])
+    labels = np.stack([dataset[start+1: start+context_length+1] for start in starts])
 
+    return (
+        torch.from_numpy(inputs).long().to(device),
+        torch.from_numpy(labels).long().to(device),
+    )
+
+def save_checkpoint(
+        model: torch.nn.Module,
+        optimizer: torch.optim.Optimizer,
+        iteration: int,
+        out: str | os.PathLike | typing.BinaryIO | typing.IO[bytes]) -> None:
+    checkpoint = {
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "iteration": iteration,
+    }
+    if isinstance(out, (os.PathLike, str)):
+        with open(out, "wb") as f:
+            torch.save(checkpoint, f)
+    else:
+        torch.save(checkpoint, out)
+
+def load_checkpoint(
+        src: str | os.PathLike | typing.BinaryIO | typing.IO[bytes],
+        model: torch.nn.Module,
+        optimizer: torch.optim.Optimizer,
+    ):
+    if isinstance(src, (os.PathLike, str)):
+        with open(src, "rb") as f:
+            checkpoint = torch.load(f)
+    else:
+        checkpoint = torch.load(src)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+
+    return checkpoint["iteration"]
 
 
 

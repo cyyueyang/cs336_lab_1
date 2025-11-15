@@ -18,6 +18,7 @@ import regex as re
 import pickle
 import math
 from einops import rearrange, repeat
+import numpy as np
 
 def run_linear(
     d_in: int,
@@ -559,7 +560,21 @@ def run_get_batch(
         is the sampled input sequences, and the second tuple item is the corresponding
         language modeling labels.
     """
-    raise NotImplementedError
+
+    def get_batch(dataset: npt.NDArray, batch_size: int, context_length: int, device: str):
+        starts = np.random.randint(
+            low=0,
+            high=len(dataset) - context_length,
+            size=(batch_size,),
+        )
+        inputs = np.stack([dataset[start: start + context_length] for start in starts])
+        labels = np.stack([dataset[start + 1: start + context_length + 1] for start in starts])
+
+        return (
+            torch.from_numpy(inputs).long().to(device),
+            torch.from_numpy(labels).long().to(device),
+        )
+    return get_batch(dataset, batch_size, context_length, device)
 
 
 def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
@@ -575,7 +590,12 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
         Float[Tensor, "..."]: Tensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
-    raise NotImplementedError
+
+    def softmax(x: torch.Tensor, dim: int) -> torch.Tensor:
+        x_max = x.max(dim=dim, keepdim=True)[0]
+        x_exp = torch.exp(x - x_max)
+        return x_exp / x_exp.sum(dim=dim, keepdim=True)
+    return softmax(in_features, dim)
 
 
 def run_cross_entropy(
@@ -740,7 +760,24 @@ def run_save_checkpoint(
             we've completed.
         out (str | os.PathLike | BinaryIO | IO[bytes]): Path or file-like object to serialize the model, optimizer, and iteration to.
     """
-    raise NotImplementedError
+
+    def save_checkpoint(
+            model: torch.nn.Module,
+            optimizer: torch.optim.Optimizer,
+            iteration: int,
+            out: str | os.PathLike | typing.BinaryIO | typing.IO[bytes]) -> None:
+        checkpoint = {
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "iteration": iteration,
+        }
+        if isinstance(out, (os.PathLike, str)):
+            with open(out, "wb") as f:
+                torch.save(checkpoint, f)
+        else:
+            torch.save(checkpoint, out)
+
+    return save_checkpoint(model, optimizer, iteration, out)
 
 
 def run_load_checkpoint(
@@ -761,7 +798,23 @@ def run_load_checkpoint(
     Returns:
         int: the previously-serialized number of iterations.
     """
-    raise NotImplementedError
+
+    def load_checkpoint(
+            src: str | os.PathLike | typing.BinaryIO | typing.IO[bytes],
+            model: torch.nn.Module,
+            optimizer: torch.optim.Optimizer,
+    ):
+        if isinstance(src, (os.PathLike, str)):
+            with open(src, "rb") as f:
+                checkpoint = torch.load(f)
+        else:
+            checkpoint = torch.load(src)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+
+        return checkpoint["iteration"]
+
+    return load_checkpoint(src, model, optimizer)
 
 class BPETokenizer(object):
 
